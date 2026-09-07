@@ -1,77 +1,235 @@
-<meta viewport="width=70, initial-scale=1">
+<meta viewport="width=72, initial-scale=1">
 <body class="">
   <div id="progress"></div>
   <div id="message"></div>
-<div class="buttons">
-  <div class="button sprite" id="prev">
+  <div class="buttons">
+    <div class="nav-row vertical-only">
+      <div class="button ghost" aria-hidden="true"></div>
+      <div class="button sprite" id="up" title="Up"></div>
+      <div class="button ghost" aria-hidden="true"></div>
+    </div>
+    <div class="nav-row">
+      <div class="button sprite" id="prev"></div>
+      <div class="button icon-btn vertical-only" id="focus" title="Zoom to selection">
+        <svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="3.25" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-opacity=".9" stroke-width="1" d="M18 10v3.5M18 22.5V26M10 18h3.5M22.5 18H26"/></svg>
+      </div>
+      <div class="button sprite" id="next"></div>
+    </div>
+    <div class="nav-row vertical-only">
+      <div class="button ghost" aria-hidden="true"></div>
+      <div class="button sprite" id="down" title="Down"></div>
+      <div class="button ghost" aria-hidden="true"></div>
+    </div>
   </div>
-  <!-- <div class="button sprite" id="menu">
-  </div> -->
-  <div class="button sprite" id="next">
+
+  <div id="settings" hidden>
+    <div class="settings-header">
+      <div class="tabs">
+        <button type="button" class="tab active" data-tab="options">Options</button>
+        <button type="button" class="tab" data-tab="help">Help</button>
+      </div>
+      <button type="button" id="closeSettings" class="close" title="Back" aria-label="Back to controls">←</button>
+    </div>
+
+    <div class="tab-panel active" id="panel-options">
+      <label class="field">
+        <span class="field-label">Transition time (ms)</span>
+        <input type="number" id="speedInput" min="0" step="1" value="600" />
+      </label>
+      <p class="hint">Hold Shift while navigating for a 2000ms glide. Digits 0–9 also set speed.</p>
+
+      <div id="figjamSection" class="figjam-section" hidden>
+        <div class="section-title">FigJam only</div>
+        <p class="hint">These options apply in FigJam. In Figma Design, use a <code>journey</code> / <code>camera</code> vector for custom paths.</p>
+
+        <label class="check">
+          <input type="checkbox" id="showVerticalButtons" />
+          Show vertical arrow buttons
+        </label>
+        <p class="hint">Adds a D-pad with ↑ / ↓ and a center control. Press the center to zoom to the current canvas selection when it’s a slide in the sequence.</p>
+
+        <div class="subsection-title">Connectors</div>
+        <div id="connectorOptions" class="connector-options">
+          <label class="check">
+            <input type="checkbox" id="alwaysFollowConnectors" />
+            Always follow connectors
+          </label>
+          <p class="hint">When on, the plugin’s ← → buttons (and N / B / Space / etc.) also prefer connectors, same as the arrow keys.</p>
+          <label class="check">
+            <input type="checkbox" id="prioritiseNestedFrames" checked />
+            When following connectors, also prioritise frames within frames
+          </label>
+          <p class="hint">When on, Next finishes nested slides inside a section/frame before jumping along a connector.</p>
+          <label class="check">
+            <input type="checkbox" id="followConnectorPaths" />
+            When following connectors, literally follow the connectors
+          </label>
+          <p class="hint">Camera rides the connector’s drawn path (elbows, curves, rounded corners) instead of a straight glide. Reconstructed from the connector’s SVG outline — only works reliably on solid lines without arrowheads (falls back to a normal glide when it can’t).</p>
+        </div>
+
+        <div id="figjamTypes" class="figjam-types">
+          <div class="subsection-title">Treat as frames</div>
+          <p class="hint">Choose which object types Next glides to. A vector named journey or camera still overrides spatial order when present.</p>
+          <label class="check"><input type="checkbox" data-type="FRAME" checked /> Frames</label>
+          <label class="check"><input type="checkbox" data-type="STICKY" checked /> Stickies</label>
+          <label class="check"><input type="checkbox" data-type="SHAPE_WITH_TEXT" checked /> Shapes with text</label>
+          <label class="check"><input type="checkbox" data-type="SECTION" checked /> Sections</label>
+          <label class="check"><input type="checkbox" data-type="TABLE" checked /> Tables</label>
+          <label class="check"><input type="checkbox" data-type="WIDGET" checked /> Widgets</label>
+          <label class="check"><input type="checkbox" data-type="INSTANCE" checked /> Instances</label>
+          <label class="check"><input type="checkbox" data-type="LINK_UNFURL" checked /> Link unfurls</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="panel-help">
+      <div class="help">
+        <h3>What Next does</h3>
+        <p>Next pans the viewport through frames on the current page using a compact prev / next bar.</p>
+
+        <h3>Controls</h3>
+        <ul>
+          <li><strong>Right-click</strong> (Mac: Control-click or two-finger tap), <strong>Escape</strong>, or <strong>long-press</strong> prev/next — open this settings panel</li>
+          <li><strong>Plugin ← → buttons</strong> — step the slide list (see Slide order). With <em>Always follow connectors</em> on, they prefer connectors instead. With vertical buttons on, ↑ / ↓ move by column order and the center control zooms to the current canvas selection if it’s in the sequence.</li>
+          <li><strong>N</strong>, Space, Tab, Enter, ] — same as the plugin → button</li>
+          <li><strong>B</strong>, Backspace, [ — same as the plugin ← button</li>
+          <li><strong>Arrow keys / WASD / JK</strong> — move by direction; in FigJam these prefer connectors when present</li>
+          <li><strong>+ / −</strong> — zoom in / out</li>
+          <li><strong>0–9</strong> — set transition speed (0 = instant, 1 = slowest, 9 = fastest)</li>
+          <li><strong>Shift</strong> — 2000ms glide for the next move</li>
+          <li><strong>Escape</strong> — open or close settings</li>
+        </ul>
+
+        <h3>Slide order</h3>
+        <p>By default, Next builds a list of objects sorted in <strong>row order</strong>: left → right along a row, then down to the next row. For example:</p>
+        <pre class="help-pre">A  B
+C  D
+E</pre>
+        <p>becomes <strong>A → B → C → D → E</strong>.</p>
+        <p>The plugin ← → buttons (and N / B / Space / etc.) walk that list one step at a time.</p>
+        <p><strong>Nested slides:</strong> when a section (or other container) is itself a slide and also contains slides inside it, the list visits the container first, then its inner objects, before moving on to the next container. So you “step into” frames within frames as part of normal order.</p>
+        <p>Up/Down (and W/S) use a separate <strong>top → bottom</strong> ordering.</p>
+        <p>If a top-level vector named <code>journey</code> or <code>camera</code> exists, that path replaces this spatial list entirely.</p>
+
+        <h3>Connectors</h3>
+        <p>In FigJam, objects can be linked with connector lines. <strong>Arrow keys</strong> (and WASD / JK) try to follow a connector from the current object in that direction — for example Right follows a link toward something on the right. If nothing matches, they fall back to slide order.</p>
+        <p>The <strong>plugin ← → buttons</strong> do <em>not</em> follow connectors unless you turn on <strong>Always follow connectors</strong> in Options. That setting makes those buttons (and N / B / Space / etc.) prefer left/right connectors the same way the arrow keys do.</p>
+        <p><strong>When following connectors, also prioritise frames within frames</strong> (on by default) keeps nested slide order: Next still steps into inner objects before jumping along a connector away from a container. Turn it off if connectors should win immediately.</p>
+        <p><strong>When following connectors, literally follow the connectors</strong> moves the camera along the connector’s drawn path (elbows, curves, rounded corners) instead of a straight glide. This is reconstructed from the connector SVG outline and only works reliably on solid lines without arrowheads (Next then falls back to a normal glide).</p>
+        <p>The other end of the connector must also be a type you’ve enabled under Treat as frames.</p>
+
+        <h3>Camera / journey path</h3>
+        <p>In Figma Design (and optionally FigJam), place a top-level vector named <code>journey</code> or <code>camera</code> to drive navigation along its points instead of spatial frame order. Frames don’t need side anchors — you draw the path yourself; Next reads the vector’s real centerline (<code>vectorNetwork</code>) and steps between vertices.</p>
+        <ul>
+          <li>Vertex stroke join <strong>Miter</strong> — stop</li>
+          <li><strong>Round</strong> — passthrough (auto-continue); disabled in FigJam</li>
+          <li><strong>Bevel</strong> — instant</li>
+        </ul>
+
+        <h3>Instant frames</h3>
+        <p>Name a frame ending with <code>•</code> to jump there with no animation.</p>
+
+        <h3>FigJam object types</h3>
+        <p>Use Options to choose which object kinds count as slides. Sections can be included as stops.</p>
+      </div>
+    </div>
   </div>
-</div>
+
 <style>
   body.unfocused:not(:hover) {
     opacity:0.25;
   }
+  body.settings-open.unfocused:not(:hover) {
+    opacity: 1;
+  }
   body {
-    margin: 0 /*4px 2px*/; padding:0;
+    margin: 0;
+    padding: 0;
     transition: opacity 200ms;
-    font-family:Inter, sans-serif;
-    font-size:11px;
-    display:flex;
-    flex-direction:column
+    font-family: Inter, sans-serif;
+    font-size: 11px;
+    display: flex;
+    flex-direction: column;
+    color: var(--figma-color-text);
+    background: var(--figma-color-bg);
+  }
+  body.settings-open {
+    height: 100%;
   }
   .buttons {
-    display:flex;
-  }
-  .button {
-    width:36px;
-    height:36px;
-    display:flex;
-    text-align:center;
-    cursor:pointer;
-    justify-content: center;
+    display: flex;
+    flex-direction: column;
     align-items: center;
   }
+  .nav-row {
+    display: flex;
+  }
+  body:not(.show-vertical) .vertical-only {
+    display: none;
+  }
+  body.settings-open .buttons {
+    display: none;
+  }
+  .button {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    text-align: center;
+    cursor: pointer;
+    justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .button.ghost {
+    visibility: hidden;
+    pointer-events: none;
+    cursor: default;
+  }
+  .icon-btn svg {
+    width: 36px;
+    height: 36px;
+    display: block;
+    color: var(--figma-color-text);
+    opacity: 0.9;
+  }
 
-  
   .sprite {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='72' fill='none' viewBox='0 0 180 72'%3E%3Cg clip-path='url(%23a)'%3E%3Cpath fill='%23000' fill-opacity='.9' d='m14 18-.354-.354a.5.5 0 0 0 0 .707L14 18Zm4.646 5.354a.5.5 0 0 0 .708-.708l-.708.708Zm.708-10a.5.5 0 0 0-.708-.708l.708.707ZM38 17.5H14v1h24v-1Zm-24.354.854 5 5 .708-.708-5-5-.708.707Zm.708 0 5-5-.708-.708-5 5 .708.707Z'/%3E%3C/g%3E%3Cg clip-path='url(%23b)'%3E%3Cpath stroke='%23000' stroke-linecap='round' stroke-opacity='.9' d='M14 54h43'/%3E%3C/g%3E%3Cg clip-path='url(%23c)'%3E%3Cpath stroke='%23000' stroke-opacity='.9' d='M34 18h40'/%3E%3C/g%3E%3Cg clip-path='url(%23d)'%3E%3Cpath fill='%23000' fill-opacity='.9' d='m94 18 .354.354a.5.5 0 0 0 0-.707L94 18Zm-4.646-5.354a.5.5 0 0 0-.708.708l.708-.708Zm-.708 10a.5.5 0 0 0 .708.708l-.708-.707ZM70 18.5h24v-1H70v1Zm24.354-.854-5-5-.708.708 5 5 .708-.707Zm-.708 0-5 5 .708.708 5-5-.708-.707Z'/%3E%3C/g%3E%3Cg clip-path='url(%23e)'%3E%3Cpath fill='%23000' fill-opacity='.9' d='M94.354 49.354a.5.5 0 0 0-.708-.708l.708.708Zm-.708 10a.5.5 0 0 0 .708-.707l-.708.707ZM70 54.5h19v-1H70v1Zm19.354-.146 5-5-.708-.708-5 5 .708.708Zm-.708 0 5 5 .708-.707-5-5-.708.707Z'/%3E%3C/g%3E%3Cg clip-path='url(%23f)'%3E%3Cpath fill='%23000' fill-opacity='.9' d='M56 49a.5.5 0 0 0-1 0h1Zm-1 10a.5.5 0 0 0 1 0h-1Zm-21-4.5h21.5v-1H34v1Zm22-.5v-5h-1v5h1Zm-1 0v5h1v-5h-1Z'/%3E%3C/g%3E%3Cpath stroke='%23000' stroke-linecap='round' stroke-opacity='.9' d='M153 54h7m7 0h-7m0 0v-7m0 7v7m-43-7h14'/%3E%3Cg clip-path='url(%23g)'%3E%3Cpath fill='%23000' fill-opacity='.9' d='m160 28-.354.354a.501.501 0 0 0 .708 0L160 28Zm5.354-4.646a.5.5 0 0 0-.708-.708l.708.708Zm-10-.708a.501.501 0 0 0-.708.708l.708-.708ZM160 18h.5a.5.5 0 0 0-.5-.5v.5Zm.354 10.354 5-5-.708-.708-5 5 .708.708Zm0-.707-5-5-.708.707 5 5 .708-.707ZM144 18.5h16v-1h-16v1Zm15.5-.5v10h1V18h-1Z'/%3E%3C/g%3E%3Cg clip-path='url(%23h)'%3E%3Cpath fill='%23000' fill-opacity='.9' d='m124 8-.354-.354a.5.5 0 0 1 .708 0L124 8Zm5.354 4.646a.5.5 0 0 1-.708.708l.708-.708Zm-10 .708a.501.501 0 0 1-.708-.708l.708.708ZM124 18h.5a.5.5 0 0 1-.5.5V18Zm.354-10.354 5 5-.708.708-5-5 .708-.708Zm0 .708-5 5-.708-.708 5-5 .708.708ZM108 17.5h16v1h-16v-1Zm15.5.5V8h1v10h-1Z'/%3E%3C/g%3E%3Cdefs%3E%3CclipPath id='a'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='rotate(180 18 18)'/%3E%3C/clipPath%3E%3CclipPath id='b'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(0 36)'/%3E%3C/clipPath%3E%3CclipPath id='c'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(36)'/%3E%3C/clipPath%3E%3CclipPath id='d'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(72)'/%3E%3C/clipPath%3E%3CclipPath id='e'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(72 36)'/%3E%3C/clipPath%3E%3CclipPath id='f'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(36 36)'/%3E%3C/clipPath%3E%3CclipPath id='g'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='rotate(90 90 90)'/%3E%3C/clipPath%3E%3CclipPath id='h'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='rotate(-90 72 -36)'/%3E%3C/clipPath%3E%3C/defs%3E%3C/svg%3E ");
-
   }
-html.figma-dark .sprite {
-background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='72' fill='none' viewBox='0 0 180 72'%3E%3Cg clip-path='url(%23a)'%3E%3Cpath fill='%23fff' fill-opacity='.9' d='m14 18-.354-.354a.5.5 0 0 0 0 .707L14 18Zm4.646 5.354a.5.5 0 0 0 .708-.708l-.708.708Zm.708-10a.5.5 0 0 0-.708-.708l.708.707ZM38 17.5H14v1h24v-1Zm-24.354.854 5 5 .708-.708-5-5-.708.707Zm.708 0 5-5-.708-.708-5 5 .708.707Z'/%3E%3C/g%3E%3Cg clip-path='url(%23b)'%3E%3Cpath stroke='%23fff' stroke-linecap='round' stroke-opacity='.9' d='M14 54h43'/%3E%3C/g%3E%3Cg clip-path='url(%23c)'%3E%3Cpath stroke='%23fff' stroke-opacity='.9' d='M34 18h40'/%3E%3C/g%3E%3Cg clip-path='url(%23d)'%3E%3Cpath fill='%23fff' fill-opacity='.9' d='m94 18 .354.354a.5.5 0 0 0 0-.707L94 18Zm-4.646-5.354a.5.5 0 0 0-.708.708l.708-.708Zm-.708 10a.5.5 0 0 0 .708.708l-.708-.707ZM70 18.5h24v-1H70v1Zm24.354-.854-5-5-.708.708 5 5 .708-.707Zm-.708 0-5 5 .708.708 5-5-.708-.707Z'/%3E%3C/g%3E%3Cg clip-path='url(%23e)'%3E%3Cpath fill='%23fff' fill-opacity='.9' d='M94.354 49.354a.5.5 0 0 0-.708-.708l.708.708Zm-.708 10a.5.5 0 0 0 .708-.707l-.708.707ZM70 54.5h19v-1H70v1Zm19.354-.146 5-5-.708-.708-5 5 .708.708Zm-.708 0 5 5 .708-.707-5-5-.708.707Z'/%3E%3C/g%3E%3Cg clip-path='url(%23f)'%3E%3Cpath fill='%23fff' fill-opacity='.9' d='M56 49a.5.5 0 0 0-1 0h1Zm-1 10a.5.5 0 0 0 1 0h-1Zm-21-4.5h21.5v-1H34v1Zm22-.5v-5h-1v5h1Zm-1 0v5h1v-5h-1Z'/%3E%3C/g%3E%3Cpath stroke='%23fff' stroke-linecap='round' stroke-opacity='.9' d='M153 54h7m7 0h-7m0 0v-7m0 7v7m-43-7h14'/%3E%3Cg clip-path='url(%23g)'%3E%3Cpath fill='%23fff' fill-opacity='.9' d='m160 28-.354.354a.501.501 0 0 0 .708 0L160 28Zm5.354-4.646a.5.5 0 0 0-.708-.708l.708.708Zm-10-.708a.501.501 0 0 0-.708.708l.708-.708ZM160 18h.5a.5.5 0 0 0-.5-.5v.5Zm.354 10.354 5-5-.708-.708-5 5 .708.708Zm0-.707-5-5-.708.707 5 5 .708-.707ZM144 18.5h16v-1h-16v1Zm15.5-.5v10h1V18h-1Z'/%3E%3C/g%3E%3Cg clip-path='url(%23h)'%3E%3Cpath fill='%23fff' fill-opacity='.9' d='m124 8-.354-.354a.5.5 0 0 1 .708 0L124 8Zm5.354 4.646a.5.5 0 0 1-.708.708l.708-.708Zm-10 .708a.501.501 0 0 1-.708-.708l.708.708ZM124 18h.5a.5.5 0 0 1-.5.5V18Zm.354-10.354 5 5-.708.708-5-5 .708-.708Zm0 .708-5 5-.708-.708 5-5 .708.708ZM108 17.5h16v1h-16v-1Zm15.5.5V8h1v10h-1Z'/%3E%3C/g%3E%3Cdefs%3E%3CclipPath id='a'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='rotate(180 18 18)'/%3E%3C/clipPath%3E%3CclipPath id='b'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(0 36)'/%3E%3C/clipPath%3E%3CclipPath id='c'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(36)'/%3E%3C/clipPath%3E%3CclipPath id='d'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(72)'/%3E%3C/clipPath%3E%3CclipPath id='e'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(72 36)'/%3E%3C/clipPath%3E%3CclipPath id='f'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(36 36)'/%3E%3C/clipPath%3E%3CclipPath id='g'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='rotate(90 90 90)'/%3E%3C/clipPath%3E%3CclipPath id='h'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='rotate(-90 72 -36)'/%3E%3C/clipPath%3E%3C/defs%3E%3C/svg%3E");  
-}
+  html.figma-dark .sprite {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='72' fill='none' viewBox='0 0 180 72'%3E%3Cg clip-path='url(%23a)'%3E%3Cpath fill='%23fff' fill-opacity='.9' d='m14 18-.354-.354a.5.5 0 0 0 0 .707L14 18Zm4.646 5.354a.5.5 0 0 0 .708-.708l-.708.708Zm.708-10a.5.5 0 0 0-.708-.708l.708.707ZM38 17.5H14v1h24v-1Zm-24.354.854 5 5 .708-.708-5-5-.708.707Zm.708 0 5-5-.708-.708-5 5 .708.707Z'/%3E%3C/g%3E%3Cg clip-path='url(%23b)'%3E%3Cpath stroke='%23fff' stroke-linecap='round' stroke-opacity='.9' d='M14 54h43'/%3E%3C/g%3E%3Cg clip-path='url(%23c)'%3E%3Cpath stroke='%23fff' stroke-opacity='.9' d='M34 18h40'/%3E%3C/g%3E%3Cg clip-path='url(%23d)'%3E%3Cpath fill='%23fff' fill-opacity='.9' d='m94 18 .354.354a.5.5 0 0 0 0-.707L94 18Zm-4.646-5.354a.5.5 0 0 0-.708.708l.708-.708Zm-.708 10a.5.5 0 0 0 .708.708l-.708-.707ZM70 18.5h24v-1H70v1Zm24.354-.854-5-5-.708.708 5 5 .708-.707Zm-.708 0-5 5 .708.708 5-5-.708-.707Z'/%3E%3C/g%3E%3Cg clip-path='url(%23e)'%3E%3Cpath fill='%23fff' fill-opacity='.9' d='M94.354 49.354a.5.5 0 0 0-.708-.708l.708.708Zm-.708 10a.5.5 0 0 0 .708-.707l-.708.707ZM70 54.5h19v-1H70v1Zm19.354-.146 5-5-.708-.708-5 5 .708.708Zm-.708 0 5 5 .708-.707-5-5-.708.707Z'/%3E%3C/g%3E%3Cg clip-path='url(%23f)'%3E%3Cpath fill='%23fff' fill-opacity='.9' d='M56 49a.5.5 0 0 0-1 0h1Zm-1 10a.5.5 0 0 0 1 0h-1Zm-21-4.5h21.5v-1H34v1Zm22-.5v-5h-1v5h1Zm-1 0v5h1v-5h-1Z'/%3E%3C/g%3E%3Cpath stroke='%23fff' stroke-linecap='round' stroke-opacity='.9' d='M153 54h7m7 0h-7m0 0v-7m0 7v7m-43-7h14'/%3E%3Cg clip-path='url(%23g)'%3E%3Cpath fill='%23fff' fill-opacity='.9' d='m160 28-.354.354a.501.501 0 0 0 .708 0L160 28Zm5.354-4.646a.5.5 0 0 0-.708-.708l.708.708Zm-10-.708a.501.501 0 0 0-.708.708l.708-.708ZM160 18h.5a.5.5 0 0 0-.5-.5v.5Zm.354 10.354 5-5-.708-.708-5 5 .708.708Zm0-.707-5-5-.708.707 5 5 .708-.707ZM144 18.5h16v-1h-16v1Zm15.5-.5v10h1V18h-1Z'/%3E%3C/g%3E%3Cg clip-path='url(%23h)'%3E%3Cpath fill='%23fff' fill-opacity='.9' d='m124 8-.354-.354a.5.5 0 0 1 .708 0L124 8Zm5.354 4.646a.5.5 0 0 1-.708.708l.708-.708Zm-10 .708a.501.501 0 0 1-.708-.708l.708.708ZM124 18h.5a.5.5 0 0 1-.5.5V18Zm.354-10.354 5 5-.708.708-5-5 .708-.708Zm0 .708-5 5-.708-.708 5-5 .708.708ZM108 17.5h16v1h-16v-1Zm15.5.5V8h1v10h-1Z'/%3E%3C/g%3E%3Cdefs%3E%3CclipPath id='a'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='rotate(180 18 18)'/%3E%3C/clipPath%3E%3CclipPath id='b'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(0 36)'/%3E%3C/clipPath%3E%3CclipPath id='c'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(36)'/%3E%3C/clipPath%3E%3CclipPath id='d'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(72)'/%3E%3C/clipPath%3E%3CclipPath id='e'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(72 36)'/%3E%3C/clipPath%3E%3CclipPath id='f'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='translate(36 36)'/%3E%3C/clipPath%3E%3CclipPath id='g'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='rotate(90 90 90)'/%3E%3C/clipPath%3E%3CclipPath id='h'%3E%3Cpath fill='%23fff' d='M0 0h36v36H0z' transform='rotate(-90 72 -36)'/%3E%3C/clipPath%3E%3C/defs%3E%3C/svg%3E");
+  }
 
   .sprite#prev {
     background-position: 0 0;
   }
-  .sprite#prev:hover {
-    background-position: 0px 0;
-  }
   .sprite#prev:active,
   .sprite#prev.active {
     background-position: -1px 0;
-    transition:background-position 0ms;
+    transition: background-position 0ms;
   }
-
-  /* body.atStart .sprite#prev:not(:hover) {
-    background-position: 0px -36px;
-  } */
 
   .sprite#next {
     background-position: -72px 0;
   }
-
   .sprite#next:active,
   .sprite#next.active {
     background-position: -71px 0;
-    transition:background-position 0ms;
+    transition: background-position 0ms;
   }
   .sprite#next.alt {
     background-position: -120px 0;
-    transition:background-position 0ms;
+    transition: background-position 0ms;
+  }
+
+  /* Same artwork as ← / →, rotated — keeps weight and shape identical */
+  .sprite#up {
+    background-position: 0 0;
+    transform: rotate(90deg);
+  }
+  .sprite#down {
+    background-position: -72px 0;
+    transform: rotate(90deg);
   }
 
   body.down .sprite#next {
@@ -87,77 +245,279 @@ background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/s
     background-position: -108px -36px;
   }
 
-  /* body.atEnd .sprite#next {
-    background-position: -72px -36px;
-  } */
   body.pastEnd .sprite#next {
     background-position: -72px -36px;
   }
   .sprite.static,
   body.pastEnd .sprite {
-    transition:background-position 0ms;
-  }
-
-  .sprite#menu {
-    background-position: -36px 0;
-  }
-  .sprite#menu:hover {
-    background-position: -120px 0;
+    transition: background-position 0ms;
   }
 
   .button svg {
-    width:36px;
-    height:36px;
-    fill:var(--figma-color-text);
+    width: 36px;
+    height: 36px;
+    fill: var(--figma-color-text);
   }
   .button:hover {
-    background-color:var(--figma-color-bg-hover);    
+    background-color: var(--figma-color-bg-hover);
   }
-
   .button:active,
   .button.active {
-    background-color:var(--figma-color-bg-pressed);    
+    background-color: var(--figma-color-bg-pressed);
   }
 
   #progress {
     background: var(--figma-color-text);
-    position:fixed;
-    top:0;
-    left:0;
-    height:2px;
-    display:none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 2px;
+    display: none;
   }
 
   #message {
     background: var(--figma-color-bg-hover);
     color: var(--figma-color-text);
-    position:absoute;
     margin: 2px 2px;
-    width:auto;
-    border-radius:3px;
-    text-align:center;
+    width: auto;
+    border-radius: 3px;
+    text-align: center;
     line-height: 32px;
   }
   #message:empty {
-    display:none;
+    display: none;
   }
 
+  #settings {
+    display: none;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+  }
+  body.settings-open #settings {
+    display: flex;
+  }
+
+  .settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--figma-color-border);
+    padding: 0 4px 0 8px;
+    flex-shrink: 0;
+  }
+  .tabs {
+    display: flex;
+    gap: 4px;
+  }
+  .tab {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--figma-color-text-secondary);
+    font: inherit;
+    padding: 10px 8px 8px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .tab.active {
+    color: var(--figma-color-text);
+    border-bottom-color: var(--figma-color-text);
+  }
+  .close {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--figma-color-text-secondary);
+    font-size: 18px;
+    line-height: 1;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .close:hover {
+    background: var(--figma-color-bg-hover);
+    color: var(--figma-color-text);
+  }
+
+  .tab-panel {
+    display: none;
+    padding: 12px;
+    overflow: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  .tab-panel.active {
+    display: block;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .field-label {
+    font-weight: 600;
+    color: var(--figma-color-text);
+  }
+  .field input[type="number"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid var(--figma-color-border);
+    border-radius: 4px;
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: inherit;
+  }
+  .hint {
+    margin: 0 0 12px;
+    color: var(--figma-color-text-secondary);
+    line-height: 1.4;
+  }
+  .figjam-section {
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 1px solid var(--figma-color-border);
+  }
+  .section-title {
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+  .subsection-title {
+    font-weight: 600;
+    margin: 12px 0 4px;
+    color: var(--figma-color-text);
+  }
+  .figjam-types {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .connector-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+
+  .help h3 {
+    margin: 12px 0 4px;
+    font-size: 11px;
+  }
+  .help h3:first-child {
+    margin-top: 0;
+  }
+  .help p, .help ul {
+    margin: 0 0 8px;
+    color: var(--figma-color-text-secondary);
+    line-height: 1.45;
+  }
+  .help ul {
+    padding-left: 16px;
+  }
+  .help li {
+    margin-bottom: 4px;
+  }
+  .help code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10px;
+  }
+  .help-pre {
+    margin: 6px 0;
+    padding: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.35;
+    white-space: pre;
+    background: var(--figma-color-bg-secondary);
+    border-radius: 4px;
+    color: var(--figma-color-text);
+  }
+  .help strong {
+    color: var(--figma-color-text);
+    font-weight: 600;
+  }
 </style>
 
 <script>
 
 function post(type, e, direction) {
-  parent.postMessage({ pluginMessage: { 
-    type, 
-    event:{alt:e.altKey, ctrl:e.ctrlKey, shift:e.shiftKey},
+  parent.postMessage({ pluginMessage: {
+    type,
+    event: e ? {alt: e.altKey, ctrl: e.ctrlKey, shift: e.shiftKey} : {},
     direction,
     time: new Date().getTime()
   }}, '*')
 }
 
+function postSettings(partial) {
+  parent.postMessage({ pluginMessage: Object.assign({ type: 'setSettings' }, partial) }, '*')
+}
+
+let settingsOpen = false;
+let applyingSettings = false;
+
+function setSettingsView(open) {
+  settingsOpen = open;
+  document.body.classList.toggle('settings-open', open);
+  document.getElementById('settings').hidden = !open;
+}
+
+function applySettingsState(msg) {
+  applyingSettings = true;
+  setSettingsView(!!msg.settingsOpen);
+  if (typeof msg.speed === 'number') {
+    document.getElementById('speedInput').value = String(msg.speed);
+  }
+  const figjamSection = document.getElementById('figjamSection');
+  const figjamTypes = document.getElementById('figjamTypes');
+  if (figjamSection) figjamSection.hidden = !msg.isFigJam;
+  const follow = document.getElementById('alwaysFollowConnectors');
+  if (follow) follow.checked = !!msg.alwaysFollowConnectors;
+  const nested = document.getElementById('prioritiseNestedFrames');
+  if (nested) nested.checked = msg.prioritiseNestedFrames !== false;
+  const pathFollow = document.getElementById('followConnectorPaths');
+  if (pathFollow) pathFollow.checked = !!msg.followConnectorPaths;
+  const vertical = document.getElementById('showVerticalButtons');
+  if (vertical) vertical.checked = !!msg.showVerticalButtons;
+  document.body.classList.toggle('show-vertical', !!msg.showVerticalButtons);
+  if (msg.figjamFrameTypes) {
+    figjamTypes.querySelectorAll('input[data-type]').forEach(function(input) {
+      const type = input.getAttribute('data-type');
+      input.checked = !!msg.figjamFrameTypes[type];
+    });
+  }
+  applyingSettings = false;
+}
+
+function collectFigjamTypes() {
+  const types = {};
+  document.querySelectorAll('#figjamTypes input[data-type]').forEach(function(input) {
+    types[input.getAttribute('data-type')] = input.checked;
+  });
+  return types;
+}
+
 onmessage = (event) => {
   let msg = event.data.pluginMessage;
-  console.log("From Plugin:", event.data.pluginMessage)
+  if (!msg) return;
+  console.log("From Plugin:", msg)
+
+  if (msg.type === 'settingsState') {
+    applySettingsState(msg);
+    return;
+  }
 
   document.body.classList.toggle("atEnd", msg.atEnd)
   document.body.classList.toggle("atStart", msg.atStart)
@@ -166,19 +526,13 @@ onmessage = (event) => {
   if (msg.length) {
     document.getElementById('progress').style.width = (msg.index / (msg.length / 1)) * 100 + "%";
   }
-  // if (msg.atEnd) {
-  //   document.getElementById('next').classList.add('alt');
-  // } else {
-  //   document.getElementById('next').classList.add('static');
-  //   document.getElementById('next').classList.remove('alt');
-  // }
 }
 
 function showPress(element, bodyClassName) {
-  document.body.classList.add(bodyClassName);
+  if (bodyClassName) document.body.classList.add(bodyClassName);
   element.classList.add("active");
   setTimeout(() => {
-    document.body.classList.remove(bodyClassName);
+    if (bodyClassName) document.body.classList.remove(bodyClassName);
     element.classList.remove("active");
   }, 333)
 }
@@ -198,34 +552,138 @@ function up(e) { post('move', e, -1) }
 function down(e) { post('move', e, 1) }
 function right(e) { post('move', e, 2) }
 function next(e) { post('move', e, 3) }
+function focusSelection(e) { post('focusSelection', e, 0) }
 
 function zoomIn(e) { post('zoom', e, 1) }
 function zoomOut(e) { post('zoom', e, -1) }
 
-function menu(e) { post('menu', e, 1) }
+function openSettings() { post('menu', null, 1) }
 function switchAxis(e) { post('axis', e) }
 
 let nextButton = document.getElementById('next')
 let prevButton = document.getElementById('prev')
 
-nextButton.onclick = next;
-prevButton.onclick = prev;
-// document.getElementById('menu').onclick = menu;
+const LONG_PRESS_MS = 500;
+let longPressTimer = null;
+let longPressFired = false;
+
+function clearLongPress() {
+  if (longPressTimer != null) {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
+}
+
+function bindNavButton(button, action) {
+  button.addEventListener('pointerdown', function(e) {
+    if (e.button !== 0) return;
+    longPressFired = false;
+    clearLongPress();
+    longPressTimer = setTimeout(function() {
+      longPressTimer = null;
+      longPressFired = true;
+      openSettings();
+    }, LONG_PRESS_MS);
+  });
+  button.addEventListener('pointerup', clearLongPress);
+  button.addEventListener('pointerleave', clearLongPress);
+  button.addEventListener('pointercancel', clearLongPress);
+  button.addEventListener('click', function(e) {
+    if (longPressFired) {
+      e.preventDefault();
+      e.stopPropagation();
+      longPressFired = false;
+      return;
+    }
+    action(e);
+  });
+}
+
+bindNavButton(nextButton, next);
+bindNavButton(prevButton, prev);
+bindNavButton(document.getElementById('up'), up);
+bindNavButton(document.getElementById('down'), down);
+bindNavButton(document.getElementById('focus'), focusSelection);
+
+document.addEventListener('contextmenu', function(e) {
+  if (settingsOpen) return;
+  e.preventDefault();
+  openSettings();
+});
+
+document.getElementById('closeSettings').onclick = function() {
+  parent.postMessage({ pluginMessage: { type: 'closeSettings' } }, '*')
+};
+
+document.querySelectorAll('.tab').forEach(function(tab) {
+  tab.onclick = function() {
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.getAttribute('data-tab')).classList.add('active');
+  };
+});
+
+document.getElementById('speedInput').addEventListener('change', function() {
+  if (applyingSettings) return;
+  const value = Math.max(0, parseInt(this.value, 10) || 0);
+  this.value = String(value);
+  postSettings({ speed: value });
+});
+
+document.getElementById('figjamTypes').addEventListener('change', function() {
+  if (applyingSettings) return;
+  postSettings({ figjamFrameTypes: collectFigjamTypes() });
+});
+
+document.getElementById('alwaysFollowConnectors').addEventListener('change', function() {
+  if (applyingSettings) return;
+  postSettings({ alwaysFollowConnectors: this.checked });
+});
+
+document.getElementById('prioritiseNestedFrames').addEventListener('change', function() {
+  if (applyingSettings) return;
+  postSettings({ prioritiseNestedFrames: this.checked });
+});
+
+document.getElementById('followConnectorPaths').addEventListener('change', function() {
+  if (applyingSettings) return;
+  postSettings({ followConnectorPaths: this.checked });
+});
+
+document.getElementById('showVerticalButtons').addEventListener('change', function() {
+  if (applyingSettings) return;
+  document.body.classList.toggle('show-vertical', this.checked);
+  postSettings({ showVerticalButtons: this.checked });
+});
 
 window.onfocus = function() { document.body.classList.remove('unfocused') }
 window.onblur = function() { document.body.classList.add('unfocused') }
 
 let focusTimeout
-window.onmouseover = function() { 
+window.onmouseover = function() {
   focusTimeout = setTimeout(() => {
     window.focus()
   }, 222)
- }
-window.onmouseout = function() { 
+}
+window.onmouseout = function() {
   clearTimeout(focusTimeout)
- }
+}
 
 document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    if (settingsOpen) {
+      parent.postMessage({ pluginMessage: { type: 'closeSettings' } }, '*')
+    } else {
+      openSettings();
+    }
+    return;
+  }
+
+  if (settingsOpen && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+    return;
+  }
+
   switch (e.key.toLowerCase()) {
     case " ":
     case "tab":
@@ -239,7 +697,6 @@ document.addEventListener('keydown', function(e) {
     case "[":
     case "b":
       showPress(prevButton)
-
       return prev(e);
 
     case "arrowright":
@@ -248,10 +705,10 @@ document.addEventListener('keydown', function(e) {
     case "e":
       showPress(nextButton)
       return right(e);
-    
-    case "arrowleft": 
-    case "j": 
-    case "a": 
+
+    case "arrowleft":
+    case "j":
+    case "a":
       showPress(prevButton)
       return left(e);
 
@@ -270,13 +727,13 @@ document.addEventListener('keydown', function(e) {
     case "+":
     case "=":
       showPress(nextButton, "zoomin")
-      return zoomIn(e);    
+      return zoomIn(e);
     case "-":
       showPress(prevButton, "zoomout")
       return zoomOut(e);
 
     case "x":
-      return switchAxis(e);  
+      return switchAxis(e);
 
     case "0":
     case "1":
@@ -296,6 +753,8 @@ document.addEventListener('keydown', function(e) {
       console.debug("e.key", e.key)
   }
 });
+
+parent.postMessage({ pluginMessage: { type: 'getSettings' } }, '*');
 window.focus()
 </script>
 </body>

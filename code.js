@@ -1348,70 +1348,98 @@ function pointAlongPolyline(points, t) {
     }
     return points[points.length - 1];
 }
-function animateAlongPoints(points, endRect, duration) {
+/** Ease in/out without overshoot (matches previous cosine ease). */
+function easeInOut(t) {
+    return 0.5 - 0.5 * Math.cos(Math.max(0, Math.min(1, t)) * Math.PI);
+}
+/**
+ * Zoom while traveling. Prefer a near-linear zoom so slow pans feel like middle-mouse
+ * (constant scale). Only dip briefly when crossing many screenfuls on a short duration.
+ */
+function zoomAlongTravel(startZoom, endZoom, progress, distance, viewportSpan, durationMs) {
+    const linear = startZoom + (endZoom - startZoom) * progress;
+    const screens = distance / Math.max(1, viewportSpan);
+    // Slow transitions, or short hops: keep zoom stable — dip reads as jitter.
+    if (durationMs >= 500 || screens < 1.25)
+        return linear;
+    const dip = Math.min(0.28, (screens - 1.25) * 0.1) * Math.sin(progress * Math.PI);
+    return linear * (1 - dip);
+}
+function fitZoomForRect(rect, fallbackZoom) {
+    if (!rect.width || !rect.height)
+        return fallbackZoom;
+    const z = Math.min((figma.viewport.bounds.width * figma.viewport.zoom - padding * 2) / rect.width, (figma.viewport.bounds.height * figma.viewport.zoom - padding * 2) / rect.height) * zoomLevel;
+    return z || fallbackZoom;
+}
+function stopViewportAnimation() {
     if (interval != null) {
         clearInterval(interval);
+        interval = null;
     }
-    // Keep the connector route as-is (already sanitized). Only lightly densify long segments.
+}
+function runViewportAnimation(duration, sample, settle) {
+    stopViewportAnimation();
+    if (duration <= 0) {
+        settle();
+        return;
+    }
+    const start = Date.now();
+    const end = start + duration;
+    const tickMs = 1000 / 60;
+    interval = setInterval(function () {
+        const now = Date.now();
+        const t = Math.min(1, Math.max(0, (now - start) / (end - start)));
+        const progress = easeInOut(t);
+        const frame = sample(progress);
+        try {
+            // Set zoom first, then center — avoids a one-frame mismatch when both change.
+            figma.viewport.zoom = frame.zoom;
+            figma.viewport.center = { x: frame.x, y: frame.y };
+        }
+        catch (e) {
+            console.error("Viewport animate error", e);
+        }
+        if (now >= end) {
+            stopViewportAnimation();
+            settle();
+        }
+    }, tickMs);
+}
+function animateAlongPoints(points, endRect, duration) {
     const path = densifyPolyline(sanitizeRoute(points), 4);
     const endCenter = { x: endRect.x + (endRect.width || 0) / 2, y: endRect.y + (endRect.height || 0) / 2 };
-    // Ease from current camera onto the path start, then along the path, then settle on target.
     const route = sanitizeRoute([
         { x: figma.viewport.center.x, y: figma.viewport.center.y },
         ...path,
         endCenter
     ]);
-    let startZoom = figma.viewport.zoom / zoomModifier;
-    let endZoom = startZoom;
-    if (endRect.width && endRect.height) {
-        endZoom = Math.min((figma.viewport.bounds.width * figma.viewport.zoom - padding * 2) / endRect.width, (figma.viewport.bounds.height * figma.viewport.zoom - padding * 2) / endRect.height) * zoomLevel;
+    const startZoom = figma.viewport.zoom / zoomModifier;
+    const endZoom = fitZoomForRect(endRect, startZoom);
+    const viewportSpan = Math.max(figma.viewport.bounds.width, figma.viewport.bounds.height);
+    let distance = 0;
+    for (let i = 1; i < route.length; i++) {
+        distance += Math.sqrt(dist2(route[i - 1], route[i]));
     }
-    if (!endZoom)
-        endZoom = startZoom;
-    const minZoom = Math.min(startZoom, endZoom) * 0.85;
-    const zoomFunc = bezier([
-        [startZoom],
-        [minZoom],
-        [minZoom],
-        [endZoom]
-    ]);
-    const start = Date.now();
-    const end = start + Math.max(duration, 400);
-    interval = setInterval(function () {
-        const now = Date.now();
-        const t = Math.min(1, Math.max(0, (now - start) / (end - start)));
-        const progress = 0.5 - 0.5 * Math.cos(t * Math.PI);
+    const dur = Math.max(duration, 400);
+    runViewportAnimation(dur, (progress) => {
         const along = pointAlongPolyline(route, progress);
-        try {
-            figma.viewport.center = along;
-            figma.viewport.zoom = zoomFunc(progress)[0] * zoomModifier;
-        }
-        catch (e) {
-            console.error("Connector path animate error", e);
-        }
-        if (now >= end) {
-            if (interval != null) {
-                clearInterval(interval);
-                interval = null;
-            }
-            figma.viewport.center = endCenter;
-            figma.viewport.zoom = endZoom * zoomModifier;
-        }
-    }, 1000 / 30);
+        return {
+            x: along.x,
+            y: along.y,
+            zoom: zoomAlongTravel(startZoom, endZoom, progress, distance, viewportSpan, dur) * zoomModifier
+        };
+    }, () => {
+        figma.viewport.zoom = endZoom * zoomModifier;
+        figma.viewport.center = endCenter;
+    });
 }
-// 
 function animateToRect(rect, duration) {
     if (!rect || rect.x == null || rect.y == null) {
         return;
     }
-    if (interval != null) {
-        // duration = 0.0;
-        clearInterval(interval);
-    }
-    let startCenter = figma.viewport.center;
-    let endCenter = { x: rect.x + (rect.width || 0) / 2, y: rect.y + (rect.height || 0) / 2 };
-    console.log("Animating to Rect", rect);
-    let bez = rect.tangentStart
+    const startCenter = figma.viewport.center;
+    const endCenter = { x: rect.x + (rect.width || 0) / 2, y: rect.y + (rect.height || 0) / 2 };
+    const bez = rect.tangentStart
         ? bezier([
             [startCenter.x, startCenter.y],
             [startCenter.x + rect.tangentStart.x, startCenter.y + rect.tangentStart.y],
@@ -1422,56 +1450,21 @@ function animateToRect(rect, duration) {
             [startCenter.x, startCenter.y],
             [endCenter.x, endCenter.y]
         ]);
-    let distance = Math.sqrt(Math.pow(endCenter.x - startCenter.x, 2) + Math.pow(endCenter.y - startCenter.y, 2));
-    let startZoom = figma.viewport.zoom / zoomModifier;
-    let endZoom = startZoom;
-    if (rect.width && rect.height) {
-        endZoom = Math.min((figma.viewport.bounds.width * figma.viewport.zoom - padding * 2) / rect.width, (figma.viewport.bounds.height * figma.viewport.zoom - padding * 2) / rect.height) * zoomLevel;
-    }
-    if (!endZoom)
-        endZoom = startZoom;
-    // Zoom uses an easing function that biases towards the lower (zoomed out) level.
-    // This prevents fast movements at high zoom.
-    let minZoom = Math.min(startZoom, endZoom);
-    let overviewZoom = minZoom / 2;
-    let extraScale = 0.95;
-    let zoomFunc = bezier([
-        [startZoom],
-        [minZoom * extraScale],
-        [minZoom * extraScale],
-        [endZoom]
-    ]);
-    let start = Date.now();
-    let end = start + duration;
-    interval = setInterval(function () {
-        let now = Date.now();
-        let t = Math.min(1, Math.max(0, (now - start) / (end - start)));
-        let progress = 0.5 - 0.5 * Math.cos(t * Math.PI);
-        figma.viewport.center = {
-            x: startCenter.x + (endCenter.x - startCenter.x) * progress,
-            y: startCenter.y + (endCenter.y - startCenter.y) * progress
+    const distance = Math.sqrt(Math.pow(endCenter.x - startCenter.x, 2) + Math.pow(endCenter.y - startCenter.y, 2));
+    const startZoom = figma.viewport.zoom / zoomModifier;
+    const endZoom = fitZoomForRect(rect, startZoom);
+    const viewportSpan = Math.max(figma.viewport.bounds.width, figma.viewport.bounds.height);
+    runViewportAnimation(duration, (progress) => {
+        const [x, y] = bez(progress);
+        return {
+            x: x || 0,
+            y: y || 0,
+            zoom: zoomAlongTravel(startZoom, endZoom, progress, distance, viewportSpan, duration) * zoomModifier
         };
-        if (bez) {
-            let [x, y] = bez(progress);
-            try {
-                figma.viewport.center = { x: x || 0, y: y || 0 };
-            }
-            catch (e) {
-                console.error("ERROR", e);
-            }
-        }
-        // Zoom out slightly at beginning and end of animation
-        let lift = Math.min(0.025, 1.0 - Math.abs(progress - 0.5)); // (Math.cos((progress - 0.5) * 2 * Math.PI) + 1)/2;
-        lift = 1.0 - lift;
-        let zoom = zoomFunc(progress)[0];
-        figma.viewport.zoom = zoom * zoomModifier; // * lift;
-        if (now >= end) {
-            if (interval != null) {
-                clearInterval(interval);
-                interval = null;
-            }
-        }
-    }, 1000 / 30);
+    }, () => {
+        figma.viewport.zoom = endZoom * zoomModifier;
+        figma.viewport.center = endCenter;
+    });
 }
 function lerp(start, end, p, f) {
     if (!f)

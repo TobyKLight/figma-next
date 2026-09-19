@@ -176,6 +176,7 @@ const DEFAULT_FIGJAM_FRAME_TYPES = {
 };
 const COMPACT_WIDTH = 72;
 const COMPACT_HEIGHT = 36;
+const COMPACT_REVEAL_HEIGHT = 28;
 const SETTINGS_WIDTH = 280;
 const SETTINGS_HEIGHT = 540;
 const REVEAL_ORDER_KEY = "revealOrder";
@@ -191,9 +192,10 @@ let revealEnabled = false;
 let settingsOpen = false;
 let revealSession = null;
 function compactSize() {
+    const revealExtra = (revealEnabled && figjam) ? COMPACT_REVEAL_HEIGHT : 0;
     return showVerticalButtons
-        ? { width: 108, height: 108 }
-        : { width: COMPACT_WIDTH, height: COMPACT_HEIGHT };
+        ? { width: 108, height: 108 + revealExtra }
+        : { width: COMPACT_WIDTH, height: COMPACT_HEIGHT + revealExtra };
 }
 function getSettingsPayload() {
     return {
@@ -451,11 +453,11 @@ function tryAdvanceReveal() {
     applyRevealVisibility();
     return true;
 }
-function suggestRevealOrder() {
-    const selection = figma.currentPage.selection[0];
+function suggestRevealOrder(forNode) {
     let max = 0;
-    const root = (selection === null || selection === void 0 ? void 0 : selection.parent) && selection.parent.type !== "DOCUMENT"
-        ? selection.parent
+    const anchor = forNode || figma.currentPage.selection[0];
+    const root = (anchor === null || anchor === void 0 ? void 0 : anchor.parent) && anchor.parent.type !== "DOCUMENT"
+        ? anchor.parent
         : figma.currentPage;
     function walk(node) {
         if ("getPluginData" in node) {
@@ -502,25 +504,30 @@ function postRevealSelectionState() {
         type: "revealSelection",
         active: true,
         hasSelection: true,
+        nodeId: node.id,
         included: order != null,
-        order: order != null ? order : suggestRevealOrder(),
+        order: order != null ? order : suggestRevealOrder(node),
         name: node.name,
     });
 }
 function handleSetRevealProps(msg) {
-    const selection = figma.currentPage.selection;
-    if (selection.length !== 1)
-        return;
-    const node = selection[0];
-    if (node.type === "CONNECTOR" || !("setPluginData" in node))
+    let node = null;
+    if (typeof msg.nodeId === "string" && msg.nodeId) {
+        node = figma.getNodeById(msg.nodeId);
+    }
+    else if (figma.currentPage.selection.length === 1) {
+        node = figma.currentPage.selection[0];
+    }
+    if (!node || node.removed || node.type === "CONNECTOR" || !("setPluginData" in node))
         return;
     if (msg.included === false) {
         setRevealOrder(node, null);
     }
     else {
+        // Any explicit order (or include=true) means the object is in the reveal sequence.
         const order = typeof msg.order === "number" && !isNaN(msg.order) && msg.order >= 1
             ? Math.floor(msg.order)
-            : suggestRevealOrder();
+            : suggestRevealOrder(node);
         setRevealOrder(node, order);
     }
     // If we're presenting this slide, refresh visibility from current step.
@@ -545,8 +552,7 @@ function setSettingsOpen(open) {
         figma.ui.resize(size.width, size.height);
     }
     postSettingsState();
-    if (open)
-        postRevealSelectionState();
+    postRevealSelectionState();
 }
 function init() {
     return __awaiter(this, void 0, void 0, function* () {
@@ -564,8 +570,7 @@ function init() {
             }
             if (msg.type === 'getSettings') {
                 postSettingsState();
-                if (settingsOpen)
-                    postRevealSelectionState();
+                postRevealSelectionState();
                 return;
             }
             if (msg.type === 'setRevealProps') {
@@ -593,6 +598,8 @@ function init() {
                     showVerticalButtons = msg.showVerticalButtons;
                 }
                 if (typeof msg.revealEnabled === "boolean") {
+                    if (revealEnabled !== msg.revealEnabled)
+                        resizeCompact = true;
                     if (revealEnabled && !msg.revealEnabled) {
                         restoreRevealSession();
                     }
@@ -610,8 +617,7 @@ function init() {
                         figma.ui.resize(size.width, size.height);
                     }
                     postSettingsState();
-                    if (settingsOpen)
-                        postRevealSelectionState();
+                    postRevealSelectionState();
                 });
                 return;
             }

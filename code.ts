@@ -199,6 +199,7 @@ const DEFAULT_FIGJAM_FRAME_TYPES: FigJamFrameTypes = {
 
 const COMPACT_WIDTH = 72;
 const COMPACT_HEIGHT = 36;
+const COMPACT_REVEAL_HEIGHT = 28;
 const SETTINGS_WIDTH = 280;
 const SETTINGS_HEIGHT = 540;
 
@@ -229,9 +230,10 @@ type RevealSession = {
 let revealSession: RevealSession | null = null;
 
 function compactSize() {
+  const revealExtra = (revealEnabled && figjam) ? COMPACT_REVEAL_HEIGHT : 0;
   return showVerticalButtons
-    ? { width: 108, height: 108 }
-    : { width: COMPACT_WIDTH, height: COMPACT_HEIGHT };
+    ? { width: 108, height: 108 + revealExtra }
+    : { width: COMPACT_WIDTH, height: COMPACT_HEIGHT + revealExtra };
 }
 
 function getSettingsPayload() {
@@ -493,11 +495,11 @@ function tryAdvanceReveal(): boolean {
   return true;
 }
 
-function suggestRevealOrder(): number {
-  const selection = figma.currentPage.selection[0];
+function suggestRevealOrder(forNode?: BaseNode | null): number {
   let max = 0;
-  const root: BaseNode = selection?.parent && selection.parent.type !== "DOCUMENT"
-    ? selection.parent
+  const anchor = forNode || figma.currentPage.selection[0];
+  const root: BaseNode = anchor?.parent && anchor.parent.type !== "DOCUMENT"
+    ? anchor.parent
     : figma.currentPage;
 
   function walk(node: BaseNode) {
@@ -548,24 +550,29 @@ function postRevealSelectionState() {
     type: "revealSelection",
     active: true,
     hasSelection: true,
+    nodeId: node.id,
     included: order != null,
-    order: order != null ? order : suggestRevealOrder(),
+    order: order != null ? order : suggestRevealOrder(node),
     name: node.name,
   });
 }
 
-function handleSetRevealProps(msg: { included?: boolean; order?: number }) {
-  const selection = figma.currentPage.selection;
-  if (selection.length !== 1) return;
-  const node = selection[0];
-  if (node.type === "CONNECTOR" || !("setPluginData" in node)) return;
+function handleSetRevealProps(msg: { included?: boolean; order?: number; nodeId?: string }) {
+  let node: BaseNode | null = null;
+  if (typeof msg.nodeId === "string" && msg.nodeId) {
+    node = figma.getNodeById(msg.nodeId);
+  } else if (figma.currentPage.selection.length === 1) {
+    node = figma.currentPage.selection[0];
+  }
+  if (!node || node.removed || node.type === "CONNECTOR" || !("setPluginData" in node)) return;
 
   if (msg.included === false) {
     setRevealOrder(node, null);
   } else {
+    // Any explicit order (or include=true) means the object is in the reveal sequence.
     const order = typeof msg.order === "number" && !isNaN(msg.order) && msg.order >= 1
       ? Math.floor(msg.order)
-      : suggestRevealOrder();
+      : suggestRevealOrder(node);
     setRevealOrder(node, order);
   }
 
@@ -592,7 +599,7 @@ function setSettingsOpen(open: boolean) {
     figma.ui.resize(size.width, size.height);
   }
   postSettingsState();
-  if (open) postRevealSelectionState();
+  postRevealSelectionState();
 }
 
 async function init() {
@@ -610,7 +617,7 @@ async function init() {
     }
     if (msg.type === 'getSettings') {
       postSettingsState();
-      if (settingsOpen) postRevealSelectionState();
+      postRevealSelectionState();
       return;
     }
     if (msg.type === 'setRevealProps') {
@@ -637,6 +644,7 @@ async function init() {
         showVerticalButtons = msg.showVerticalButtons;
       }
       if (typeof msg.revealEnabled === "boolean") {
+        if (revealEnabled !== msg.revealEnabled) resizeCompact = true;
         if (revealEnabled && !msg.revealEnabled) {
           restoreRevealSession();
         }
@@ -653,7 +661,7 @@ async function init() {
           figma.ui.resize(size.width, size.height);
         }
         postSettingsState();
-        if (settingsOpen) postRevealSelectionState();
+        postRevealSelectionState();
       });
       return;
     }

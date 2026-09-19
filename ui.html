@@ -3,6 +3,9 @@
   <div id="progress"></div>
   <div id="message"></div>
   <div class="buttons">
+    <div id="compactReveal" class="compact-reveal" hidden>
+      <input type="number" id="compactRevealOrder" min="1" step="1" title="Reveal order" placeholder="#" disabled />
+    </div>
     <div class="nav-row vertical-only">
       <div class="button ghost" aria-hidden="true"></div>
       <div class="button sprite" id="up" title="Up"></div>
@@ -187,6 +190,44 @@ E</pre>
     display: flex;
     flex-direction: column;
     align-items: center;
+  }
+  .compact-reveal {
+    display: none;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 2px 4px 0;
+    justify-content: center;
+    align-items: center;
+    height: 28px;
+  }
+  body.reveal-on:not(.settings-open) .compact-reveal {
+    display: flex;
+  }
+  .compact-reveal input {
+    width: 100%;
+    max-width: 100px;
+    height: 24px;
+    box-sizing: border-box;
+    padding: 0 4px;
+    border: 1px solid var(--figma-color-border);
+    border-radius: 4px;
+    background: var(--figma-color-bg);
+    color: var(--figma-color-text);
+    font: inherit;
+    text-align: center;
+    -moz-appearance: textfield;
+  }
+  .compact-reveal input::-webkit-outer-spin-button,
+  .compact-reveal input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .compact-reveal input:disabled {
+    opacity: 0.45;
+  }
+  .compact-reveal input:not(:disabled):focus {
+    outline: none;
+    border-color: var(--figma-color-border-selected, var(--figma-color-text));
   }
   .nav-row {
     display: flex;
@@ -512,6 +553,8 @@ function postSettings(partial) {
 let settingsOpen = false;
 let applyingSettings = false;
 let applyingReveal = false;
+let revealTargetNodeId = null;
+let compactRevealFocusNodeId = null;
 
 function setSettingsView(open) {
   settingsOpen = open;
@@ -541,6 +584,9 @@ function applySettingsState(msg) {
   const revealAuthoring = document.getElementById('revealAuthoring');
   if (revealAuthoring) revealAuthoring.hidden = !(msg.isFigJam && msg.revealEnabled);
   document.body.classList.toggle('show-vertical', !!msg.showVerticalButtons);
+  document.body.classList.toggle('reveal-on', !!(msg.isFigJam && msg.revealEnabled));
+  const compactReveal = document.getElementById('compactReveal');
+  if (compactReveal) compactReveal.hidden = !(msg.isFigJam && msg.revealEnabled);
   if (msg.figjamFrameTypes) {
     figjamTypes.querySelectorAll('input[data-type]').forEach(function(input) {
       const type = input.getAttribute('data-type');
@@ -550,43 +596,104 @@ function applySettingsState(msg) {
   applyingSettings = false;
 }
 
+function postRevealProps(partial) {
+  const payload = Object.assign({ type: 'setRevealProps' }, partial);
+  if (!payload.nodeId && revealTargetNodeId) {
+    payload.nodeId = revealTargetNodeId;
+  }
+  parent.postMessage({ pluginMessage: payload }, '*');
+}
+
+function commitRevealOrderValue(rawValue, nodeId) {
+  const targetId = nodeId || revealTargetNodeId;
+  if (!targetId) return;
+  const raw = String(rawValue == null ? '' : rawValue).trim();
+  if (raw === '') {
+    postRevealProps({ nodeId: targetId, included: false });
+    return;
+  }
+  const order = Math.max(1, parseInt(raw, 10) || 1);
+  postRevealProps({ nodeId: targetId, included: true, order: order });
+}
+
 function applyRevealSelection(msg) {
   const authoring = document.getElementById('revealAuthoring');
   const noSel = document.getElementById('revealNoSelection');
   const fields = document.getElementById('revealSelectionFields');
-  if (!authoring || !noSel || !fields) return;
+  const compactInput = document.getElementById('compactRevealOrder');
 
-  if (!msg.active) {
-    authoring.hidden = true;
-    return;
-  }
-  authoring.hidden = false;
-
-  if (!msg.hasSelection) {
-    noSel.hidden = false;
-    fields.hidden = true;
-    if (msg.unsupported) {
-      noSel.textContent = 'Connectors are revealed automatically when both ends are visible.';
-    } else if (msg.multi) {
-      noSel.textContent = 'Select a single object to set its reveal order.';
-    } else {
-      noSel.textContent = 'Select an object inside a slide to set its reveal order.';
-    }
-    return;
+  // If the user clicks another object while editing the compact field, commit to the
+  // previously focused node first — never write that value onto the new selection.
+  if (
+    compactInput &&
+    document.activeElement === compactInput &&
+    compactRevealFocusNodeId &&
+    msg.nodeId !== compactRevealFocusNodeId
+  ) {
+    commitRevealOrderValue(compactInput.value, compactRevealFocusNodeId);
+    compactRevealFocusNodeId = null;
+    compactInput.blur();
   }
 
   applyingReveal = true;
-  noSel.hidden = true;
-  fields.hidden = false;
-  document.getElementById('revealObjectName').textContent = msg.name || 'Object';
-  document.getElementById('revealIncluded').checked = !!msg.included;
-  document.getElementById('revealOrderInput').value = String(msg.order || 1);
-  document.getElementById('revealOrderField').hidden = !msg.included;
-  applyingReveal = false;
-}
+  revealTargetNodeId = msg.hasSelection && msg.nodeId ? msg.nodeId : null;
 
-function postRevealProps(partial) {
-  parent.postMessage({ pluginMessage: Object.assign({ type: 'setRevealProps' }, partial) }, '*');
+  if (!msg.active) {
+    if (authoring) authoring.hidden = true;
+    if (compactInput) {
+      compactInput.value = '';
+      compactInput.placeholder = '#';
+      compactInput.disabled = true;
+    }
+    applyingReveal = false;
+    return;
+  }
+  if (authoring) authoring.hidden = false;
+
+  if (!msg.hasSelection) {
+    if (noSel) {
+      noSel.hidden = false;
+      if (msg.unsupported) {
+        noSel.textContent = 'Connectors are revealed automatically when both ends are visible.';
+      } else if (msg.multi) {
+        noSel.textContent = 'Select a single object to set its reveal order.';
+      } else {
+        noSel.textContent = 'Select an object inside a slide to set its reveal order.';
+      }
+    }
+    if (fields) fields.hidden = true;
+    if (compactInput) {
+      compactInput.value = '';
+      compactInput.placeholder = '#';
+      compactInput.disabled = true;
+    }
+    applyingReveal = false;
+    return;
+  }
+
+  if (noSel) noSel.hidden = true;
+  if (fields) fields.hidden = false;
+  const nameEl = document.getElementById('revealObjectName');
+  if (nameEl) nameEl.textContent = msg.name || 'Object';
+  const included = document.getElementById('revealIncluded');
+  if (included) included.checked = !!msg.included;
+  const orderInput = document.getElementById('revealOrderInput');
+  if (orderInput) orderInput.value = String(msg.order || 1);
+  const orderField = document.getElementById('revealOrderField');
+  if (orderField) orderField.hidden = !msg.included;
+
+  if (compactInput) {
+    compactInput.disabled = false;
+    if (msg.included) {
+      compactInput.value = String(msg.order || 1);
+      compactInput.placeholder = '#';
+    } else {
+      compactInput.value = '';
+      compactInput.placeholder = String(msg.order || 1);
+    }
+  }
+
+  applyingReveal = false;
 }
 
 function collectFigjamTypes() {
@@ -754,6 +861,9 @@ document.getElementById('revealEnabled').addEventListener('change', function() {
   if (applyingSettings) return;
   const authoring = document.getElementById('revealAuthoring');
   if (authoring) authoring.hidden = !this.checked;
+  document.body.classList.toggle('reveal-on', this.checked);
+  const compactReveal = document.getElementById('compactReveal');
+  if (compactReveal) compactReveal.hidden = !this.checked;
   postSettings({ revealEnabled: this.checked });
 });
 
@@ -773,8 +883,47 @@ document.getElementById('revealOrderInput').addEventListener('change', function(
   if (applyingReveal) return;
   const order = Math.max(1, parseInt(this.value, 10) || 1);
   this.value = String(order);
-  if (document.getElementById('revealIncluded').checked) {
-    postRevealProps({ included: true, order: order });
+  // Setting an order always includes the object in the reveal sequence.
+  document.getElementById('revealIncluded').checked = true;
+  document.getElementById('revealOrderField').hidden = false;
+  postRevealProps({ included: true, order: order });
+});
+
+function commitCompactRevealOrder() {
+  if (applyingReveal) return;
+  const input = document.getElementById('compactRevealOrder');
+  if (!input || input.disabled) return;
+  const nodeId = compactRevealFocusNodeId || revealTargetNodeId;
+  if (!nodeId) return;
+  // Normalize displayed value when including.
+  const raw = String(input.value || '').trim();
+  if (raw !== '') {
+    input.value = String(Math.max(1, parseInt(raw, 10) || 1));
+    const included = document.getElementById('revealIncluded');
+    if (included) included.checked = true;
+    const orderField = document.getElementById('revealOrderField');
+    if (orderField) orderField.hidden = false;
+    const orderInput = document.getElementById('revealOrderInput');
+    if (orderInput) orderInput.value = input.value;
+  }
+  commitRevealOrderValue(input.value, nodeId);
+}
+
+document.getElementById('compactRevealOrder').addEventListener('focus', function() {
+  compactRevealFocusNodeId = revealTargetNodeId;
+});
+
+// Use change only (fires on commit before blur) — avoid double-writing on blur.
+document.getElementById('compactRevealOrder').addEventListener('change', commitCompactRevealOrder);
+
+document.getElementById('compactRevealOrder').addEventListener('blur', function() {
+  compactRevealFocusNodeId = null;
+});
+
+document.getElementById('compactRevealOrder').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    this.blur();
   }
 });
 
@@ -801,7 +950,7 @@ document.addEventListener('keydown', function(e) {
     return;
   }
 
-  if (settingsOpen && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
     return;
   }
 

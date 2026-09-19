@@ -177,7 +177,8 @@ const DEFAULT_FIGJAM_FRAME_TYPES = {
 const COMPACT_WIDTH = 72;
 const COMPACT_HEIGHT = 36;
 const SETTINGS_WIDTH = 280;
-const SETTINGS_HEIGHT = 460;
+const SETTINGS_HEIGHT = 540;
+const REVEAL_ORDER_KEY = "revealOrder";
 let figjam = figma.editorType === "figjam";
 let zoomModifier = 1.0;
 let baseSpeed = 600;
@@ -186,7 +187,9 @@ let alwaysFollowConnectors = false;
 let prioritiseNestedFrames = true;
 let followConnectorPaths = false;
 let showVerticalButtons = false;
+let revealEnabled = false;
 let settingsOpen = false;
+let revealSession = null;
 function compactSize() {
     return showVerticalButtons
         ? { width: 108, height: 108 }
@@ -202,6 +205,7 @@ function getSettingsPayload() {
         prioritiseNestedFrames,
         followConnectorPaths,
         showVerticalButtons,
+        revealEnabled,
         settingsOpen,
     };
 }
@@ -216,6 +220,7 @@ function persistSettings() {
         yield figma.clientStorage.setAsync("prioritiseNestedFrames", prioritiseNestedFrames);
         yield figma.clientStorage.setAsync("followConnectorPaths", followConnectorPaths);
         yield figma.clientStorage.setAsync("showVerticalButtons", showVerticalButtons);
+        yield figma.clientStorage.setAsync("revealEnabled", revealEnabled);
     });
 }
 function loadSettings() {
@@ -251,6 +256,10 @@ function loadSettings() {
         if (typeof storedVertical === "boolean") {
             showVerticalButtons = storedVertical;
         }
+        const storedReveal = yield figma.clientStorage.getAsync("revealEnabled");
+        if (typeof storedReveal === "boolean") {
+            revealEnabled = storedReveal;
+        }
     });
 }
 function isTypeEnabled(type) {
@@ -260,6 +269,271 @@ function isTypeEnabled(type) {
             || type === "LINK_UNFURL";
     }
     return !!figjamFrameTypes[type];
+}
+function nodeSupportsVisible(node) {
+    return "visible" in node;
+}
+function getRevealOrder(node) {
+    if (!("getPluginData" in node))
+        return null;
+    const raw = node.getPluginData(REVEAL_ORDER_KEY);
+    if (!raw)
+        return null;
+    const n = parseInt(raw, 10);
+    return isNaN(n) ? null : n;
+}
+function setRevealOrder(node, order) {
+    if (!("setPluginData" in node))
+        return;
+    node.setPluginData(REVEAL_ORDER_KEY, order == null ? "" : String(order));
+}
+function isUnderSlide(node, slide) {
+    let current = node;
+    while (current) {
+        if (current.id === slide.id)
+            return true;
+        if (current.type === "PAGE" || current.type === "DOCUMENT")
+            return false;
+        current = current.parent;
+    }
+    return false;
+}
+function collectRevealTagged(slide) {
+    const tagged = [];
+    function walk(node) {
+        if (!("children" in node))
+            return;
+        for (const child of node.children) {
+            if (child.type === "CONNECTOR")
+                continue;
+            const order = getRevealOrder(child);
+            if (order != null && nodeSupportsVisible(child)) {
+                tagged.push({ node: child, order });
+            }
+            walk(child);
+        }
+    }
+    walk(slide);
+    return tagged;
+}
+function uniqueSortedOrders(tagged) {
+    const seen = {};
+    const orders = [];
+    for (const item of tagged) {
+        if (!seen[item.order]) {
+            seen[item.order] = true;
+            orders.push(item.order);
+        }
+    }
+    orders.sort((a, b) => a - b);
+    return orders;
+}
+function rememberOriginal(session, node) {
+    if (!(node.id in session.originals)) {
+        session.originals[node.id] = node.visible;
+    }
+}
+function setNodeVisible(session, node, visible) {
+    if (!nodeSupportsVisible(node) || node.removed)
+        return;
+    rememberOriginal(session, node);
+    if (node.visible !== visible) {
+        node.visible = visible;
+    }
+}
+function connectorsTouchingSlide(slide) {
+    const byId = {};
+    for (const c of pageConnectors) {
+        byId[c.id] = c;
+    }
+    function walk(node) {
+        if ("attachedConnectors" in node && Array.isArray(node.attachedConnectors)) {
+            for (const c of node.attachedConnectors) {
+                byId[c.id] = c;
+            }
+        }
+        if ("children" in node) {
+            for (const child of node.children) {
+                if (child.type === "CONNECTOR") {
+                    byId[child.id] = child;
+                }
+                walk(child);
+            }
+        }
+    }
+    walk(slide);
+    return Object.keys(byId).map(id => byId[id]);
+}
+function applyRevealVisibility() {
+    if (!revealSession)
+        return;
+    const slide = figma.getNodeById(revealSession.slideId);
+    if (!slide || slide.removed) {
+        restoreRevealSession();
+        return;
+    }
+    const threshold = revealSession.step > 0
+        ? revealSession.orders[revealSession.step - 1]
+        : null;
+    for (const id of revealSession.taggedIds) {
+        const node = figma.getNodeById(id);
+        if (!node || node.removed || !nodeSupportsVisible(node))
+            continue;
+        const order = getRevealOrder(node);
+        if (order == null)
+            continue;
+        const show = threshold != null && order <= threshold;
+        setNodeVisible(revealSession, node, show);
+    }
+    const managedConnectors = [];
+    for (const connector of connectorsTouchingSlide(slide)) {
+        if (connector.removed)
+            continue;
+        const startId = endpointNodeId(connector.connectorStart);
+        const endId = endpointNodeId(connector.connectorEnd);
+        if (!startId || !endId)
+            continue;
+        const start = figma.getNodeById(startId);
+        const end = figma.getNodeById(endId);
+        if (!start || !end || start.removed || end.removed)
+            continue;
+        if (!isUnderSlide(start, slide) || !isUnderSlide(end, slide))
+            continue;
+        if (!nodeSupportsVisible(connector))
+            continue;
+        managedConnectors.push(connector.id);
+        const startVisible = nodeSupportsVisible(start) ? start.visible : true;
+        const endVisible = nodeSupportsVisible(end) ? end.visible : true;
+        setNodeVisible(revealSession, connector, startVisible && endVisible);
+    }
+    revealSession.connectorIds = managedConnectors;
+}
+function restoreRevealSession() {
+    if (!revealSession)
+        return;
+    const originals = revealSession.originals;
+    for (const id of Object.keys(originals)) {
+        const node = figma.getNodeById(id);
+        if (!node || node.removed || !nodeSupportsVisible(node))
+            continue;
+        // Always restore to visible when ending a session (file should stay visible).
+        node.visible = true;
+    }
+    revealSession = null;
+}
+function enterRevealSession(keyframe) {
+    restoreRevealSession();
+    if (!revealEnabled || !figjam || !(keyframe === null || keyframe === void 0 ? void 0 : keyframe.node))
+        return;
+    const slide = keyframe.node;
+    const tagged = collectRevealTagged(slide);
+    if (tagged.length === 0)
+        return;
+    revealSession = {
+        slideId: slide.id,
+        orders: uniqueSortedOrders(tagged),
+        step: 0,
+        taggedIds: tagged.map(t => t.node.id),
+        connectorIds: [],
+        originals: {},
+    };
+    applyRevealVisibility();
+}
+/** Returns true if the press was consumed by advancing a reveal step. */
+function tryAdvanceReveal() {
+    if (!revealEnabled || !figjam || !revealSession)
+        return false;
+    if (!(currentKeyframe === null || currentKeyframe === void 0 ? void 0 : currentKeyframe.node) || currentKeyframe.node.id !== revealSession.slideId)
+        return false;
+    if (revealSession.step >= revealSession.orders.length)
+        return false;
+    revealSession.step += 1;
+    applyRevealVisibility();
+    return true;
+}
+function suggestRevealOrder() {
+    const selection = figma.currentPage.selection[0];
+    let max = 0;
+    const root = (selection === null || selection === void 0 ? void 0 : selection.parent) && selection.parent.type !== "DOCUMENT"
+        ? selection.parent
+        : figma.currentPage;
+    function walk(node) {
+        if ("getPluginData" in node) {
+            const order = getRevealOrder(node);
+            if (order != null && order > max)
+                max = order;
+        }
+        if ("children" in node) {
+            for (const child of node.children) {
+                walk(child);
+            }
+        }
+    }
+    walk(root);
+    return max + 1;
+}
+function postRevealSelectionState() {
+    if (!revealEnabled || !figjam) {
+        figma.ui.postMessage({ type: "revealSelection", active: false });
+        return;
+    }
+    const selection = figma.currentPage.selection;
+    if (selection.length !== 1) {
+        figma.ui.postMessage({
+            type: "revealSelection",
+            active: true,
+            hasSelection: false,
+            multi: selection.length > 1,
+        });
+        return;
+    }
+    const node = selection[0];
+    if (node.type === "CONNECTOR" || !nodeSupportsVisible(node) || !("getPluginData" in node)) {
+        figma.ui.postMessage({
+            type: "revealSelection",
+            active: true,
+            hasSelection: false,
+            unsupported: true,
+        });
+        return;
+    }
+    const order = getRevealOrder(node);
+    figma.ui.postMessage({
+        type: "revealSelection",
+        active: true,
+        hasSelection: true,
+        included: order != null,
+        order: order != null ? order : suggestRevealOrder(),
+        name: node.name,
+    });
+}
+function handleSetRevealProps(msg) {
+    const selection = figma.currentPage.selection;
+    if (selection.length !== 1)
+        return;
+    const node = selection[0];
+    if (node.type === "CONNECTOR" || !("setPluginData" in node))
+        return;
+    if (msg.included === false) {
+        setRevealOrder(node, null);
+    }
+    else {
+        const order = typeof msg.order === "number" && !isNaN(msg.order) && msg.order >= 1
+            ? Math.floor(msg.order)
+            : suggestRevealOrder();
+        setRevealOrder(node, order);
+    }
+    // If we're presenting this slide, refresh visibility from current step.
+    if (revealSession && (currentKeyframe === null || currentKeyframe === void 0 ? void 0 : currentKeyframe.node) && isUnderSlide(node, currentKeyframe.node)) {
+        const tagged = collectRevealTagged(currentKeyframe.node);
+        revealSession.orders = uniqueSortedOrders(tagged);
+        revealSession.taggedIds = tagged.map(t => t.node.id);
+        if (revealSession.step > revealSession.orders.length) {
+            revealSession.step = revealSession.orders.length;
+        }
+        applyRevealVisibility();
+    }
+    postRevealSelectionState();
 }
 function setSettingsOpen(open) {
     settingsOpen = open;
@@ -271,6 +545,8 @@ function setSettingsOpen(open) {
         figma.ui.resize(size.width, size.height);
     }
     postSettingsState();
+    if (open)
+        postRevealSelectionState();
 }
 function init() {
     return __awaiter(this, void 0, void 0, function* () {
@@ -288,6 +564,12 @@ function init() {
             }
             if (msg.type === 'getSettings') {
                 postSettingsState();
+                if (settingsOpen)
+                    postRevealSelectionState();
+                return;
+            }
+            if (msg.type === 'setRevealProps') {
+                handleSetRevealProps(msg);
                 return;
             }
             if (msg.type === 'setSettings') {
@@ -310,6 +592,12 @@ function init() {
                         resizeCompact = true;
                     showVerticalButtons = msg.showVerticalButtons;
                 }
+                if (typeof msg.revealEnabled === "boolean") {
+                    if (revealEnabled && !msg.revealEnabled) {
+                        restoreRevealSession();
+                    }
+                    revealEnabled = msg.revealEnabled;
+                }
                 if (msg.figjamFrameTypes && typeof msg.figjamFrameTypes === "object") {
                     figjamFrameTypes = Object.assign(Object.assign({}, DEFAULT_FIGJAM_FRAME_TYPES), msg.figjamFrameTypes);
                     reloadFrames = true;
@@ -322,12 +610,20 @@ function init() {
                         figma.ui.resize(size.width, size.height);
                     }
                     postSettingsState();
+                    if (settingsOpen)
+                        postRevealSelectionState();
                 });
                 return;
             }
             handleMessage(msg);
         };
-        figma.on("currentpagechange", loadFrames);
+        figma.on("close", () => {
+            restoreRevealSession();
+        });
+        figma.on("currentpagechange", () => {
+            restoreRevealSession();
+            loadFrames();
+        });
         figma.on("documentchange", (event) => {
             const shouldReload = event.documentChanges.some(change => {
                 return change.type === "CREATE" || change.type === "DELETE";
@@ -375,9 +671,15 @@ figma.on("selectionchange", () => {
             selection = selection.parent;
         }
     }
+    let matched = false;
     keyframes.forEach(keyframe => {
         var _a, _b;
         if (selection === keyframe.node) {
+            matched = true;
+            // Canvas selection syncs the nav index but does not start a reveal session.
+            if (revealSession && keyframe.node && revealSession.slideId !== keyframe.node.id) {
+                restoreRevealSession();
+            }
             currentKeyframe = keyframe;
             if (cameraPath) {
                 let ox = ((_a = cameraPath.absoluteBoundingBox) === null || _a === void 0 ? void 0 : _a.x) || 0;
@@ -397,10 +699,20 @@ figma.on("selectionchange", () => {
             return true;
         }
     });
+    if (!matched && revealSession) {
+        // Selection left the presenting slide's keyframe ancestry — keep session until nav/focus.
+    }
+    postRevealSelectionState();
 });
 function loadFrames() {
     var _a, _b;
     figma.skipInvisibleInstanceChildren = true;
+    if (revealSession) {
+        const slide = figma.getNodeById(revealSession.slideId);
+        if (!slide || slide.removed) {
+            restoreRevealSession();
+        }
+    }
     const previousId = (_a = currentKeyframe === null || currentKeyframe === void 0 ? void 0 : currentKeyframe.node) === null || _a === void 0 ? void 0 : _a.id;
     cameraPath = figma.currentPage.findChildren(node => {
         return node.type === "VECTOR" && (node.name.toLowerCase() == "journey" || node.name.toLowerCase() == "camera");
@@ -565,6 +877,15 @@ function handleMessage(msg) {
                 return;
             currentIndex = found;
             const vertex = cameraPath.vectorNetwork.vertices[found];
+            const frame = figma.currentPage
+                .findChildren(n => n.type === "FRAME" && pointInRect({ x: vertex.x + ox, y: vertex.y + oy }, n.absoluteBoundingBox))
+                .pop();
+            const matchedKf = frame
+                ? keyframes.find(k => { var _a; return ((_a = k.node) === null || _a === void 0 ? void 0 : _a.id) === frame.id; })
+                : keyframes.find(k => { var _a; return ((_a = k.node) === null || _a === void 0 ? void 0 : _a.id) === node.id; });
+            if (matchedKf)
+                currentKeyframe = matchedKf;
+            enterRevealSession(matchedKf || (node ? Object.assign({ node }, box) : undefined));
             postNavState();
             animateToRect({ x: vertex.x + ox, y: vertex.y + oy }, duration);
             return;
@@ -584,6 +905,7 @@ function handleMessage(msg) {
         const box = (_d = currentKeyframe === null || currentKeyframe === void 0 ? void 0 : currentKeyframe.node) === null || _d === void 0 ? void 0 : _d.absoluteBoundingBox;
         if (!box)
             return;
+        enterRevealSession(currentKeyframe);
         postNavState();
         animateToRect(box, duration);
         return;
@@ -594,6 +916,10 @@ function handleMessage(msg) {
     let direction = msg.direction || Direction.Stop;
     let vertical = direction == Direction.Up || direction == Direction.Down;
     let reverse = (msg.direction || 0) < 0;
+    // Consume nav presses as reveal steps until the current slide is fully revealed.
+    if (msg.type === 'move' && tryAdvanceReveal()) {
+        return;
+    }
     figma.currentPage.selection = [];
     if (cameraPath != null) {
         let segment = undefined;
@@ -611,6 +937,8 @@ function handleMessage(msg) {
             currentIndex = 0;
         if (currentIndex >= currentLength) {
             currentIndex = -1;
+            restoreRevealSession();
+            currentKeyframe = undefined;
             return;
         }
         else {
@@ -667,6 +995,12 @@ function handleMessage(msg) {
         if (frame) {
             rect = Object.assign(rect, frame.absoluteBoundingBox);
         }
+        const matchedKf = frame
+            ? keyframes.find(k => { var _a; return ((_a = k.node) === null || _a === void 0 ? void 0 : _a.id) === frame.id; })
+            : undefined;
+        if (matchedKf)
+            currentKeyframe = matchedKf;
+        enterRevealSession(matchedKf);
         if (transitionType == TransitionType.Instant)
             duration = 0;
         animateToRect(rect, duration);
@@ -685,6 +1019,7 @@ function handleMessage(msg) {
         if (currentLength === 0) {
             currentIndex = -1;
             currentKeyframe = undefined;
+            restoreRevealSession();
             postNavState();
             return;
         }
@@ -719,11 +1054,13 @@ function handleMessage(msg) {
         if (currentIndex < 0) {
             currentIndex = -1;
             currentKeyframe = undefined;
+            restoreRevealSession();
             return;
         }
         if (currentIndex >= currentLength) {
             currentIndex = currentLength;
             currentKeyframe = undefined;
+            restoreRevealSession();
             return;
         }
         currentKeyframe = keyframes[currentIndex];
@@ -733,6 +1070,8 @@ function handleMessage(msg) {
         const box = (_j = currentKeyframe === null || currentKeyframe === void 0 ? void 0 : currentKeyframe.node) === null || _j === void 0 ? void 0 : _j.absoluteBoundingBox;
         if (!box)
             return;
+        // Hide destination reveals before the camera arrives (usually still off-screen).
+        enterRevealSession(currentKeyframe);
         if (followConnectorPaths && connectorHop) {
             const fresh = figma.getNodeById(connectorHop.connector.id);
             const connectorNode = (fresh && fresh.type === "CONNECTOR")

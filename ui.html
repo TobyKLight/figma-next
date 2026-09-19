@@ -48,6 +48,30 @@
         </label>
         <p class="hint">Adds a D-pad with ↑ / ↓ and a center control. Press the center to zoom to the current canvas selection when it’s a slide in the sequence.</p>
 
+        <div class="subsection-title">Reveal</div>
+        <label class="check">
+          <input type="checkbox" id="revealEnabled" />
+          Reveal objects while presenting
+        </label>
+        <p class="hint">On each slide, tagged objects start hidden. Any direction reveals the next order group; once everything is visible, that direction moves to the next slide. Connectors appear only when both ends are visible. Closing the plugin restores full visibility.</p>
+
+        <div id="revealAuthoring" class="reveal-authoring" hidden>
+          <div class="subsection-title">Selected object</div>
+          <p id="revealNoSelection" class="hint">Select an object inside a slide to set its reveal order.</p>
+          <div id="revealSelectionFields" hidden>
+            <p id="revealObjectName" class="hint reveal-name"></p>
+            <label class="check">
+              <input type="checkbox" id="revealIncluded" />
+              Include in reveal sequence
+            </label>
+            <label class="field" id="revealOrderField">
+              <span class="field-label">Reveal order</span>
+              <input type="number" id="revealOrderInput" min="1" step="1" value="1" />
+            </label>
+            <p class="hint">Same number = appear together. Lower numbers appear first.</p>
+          </div>
+        </div>
+
         <div class="subsection-title">Connectors</div>
         <div id="connectorOptions" class="connector-options">
           <label class="check">
@@ -117,6 +141,9 @@ E</pre>
         <p><strong>When following connectors, also prioritise frames within frames</strong> (on by default) keeps nested slide order: Next still steps into inner objects before jumping along a connector away from a container. Turn it off if connectors should win immediately.</p>
         <p><strong>When following connectors, literally follow the connectors</strong> moves the camera along the connector’s drawn path (elbows, curves, rounded corners) instead of a straight glide. This is reconstructed from the connector SVG outline and only works reliably on solid lines without arrowheads (Next then falls back to a normal glide).</p>
         <p>The other end of the connector must also be a type you’ve enabled under Treat as frames.</p>
+
+        <h3>Reveal (FigJam)</h3>
+        <p>Turn on <strong>Reveal objects while presenting</strong> in Options. Select any object inside a slide and give it a reveal order. While presenting (via Next or the center focus button), those objects start hidden; each navigation press reveals the next order group. Same number = same step. Connectors between shapes show only when both ends are visible. Closing the plugin leaves everything visible in the file.</p>
 
         <h3>Camera / journey path</h3>
         <p>In Figma Design (and optionally FigJam), place a top-level vector named <code>journey</code> or <code>camera</code> to drive navigation along its points instead of spatial frame order. Frames don’t need side anchors — you draw the path yourself; Next reads the vector’s real centerline (<code>vectorNetwork</code>) and steps between vertices.</p>
@@ -378,6 +405,23 @@ E</pre>
     color: var(--figma-color-text-secondary);
     line-height: 1.4;
   }
+  .reveal-authoring {
+    margin-bottom: 12px;
+    padding: 8px;
+    border: 1px solid var(--figma-color-border);
+    border-radius: 6px;
+  }
+  .reveal-name {
+    font-weight: 600;
+    color: var(--figma-color-text);
+    margin-bottom: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #revealOrderField[hidden] {
+    display: none;
+  }
   .figjam-section {
     margin-top: 8px;
     padding-top: 12px;
@@ -467,6 +511,7 @@ function postSettings(partial) {
 
 let settingsOpen = false;
 let applyingSettings = false;
+let applyingReveal = false;
 
 function setSettingsView(open) {
   settingsOpen = open;
@@ -491,6 +536,10 @@ function applySettingsState(msg) {
   if (pathFollow) pathFollow.checked = !!msg.followConnectorPaths;
   const vertical = document.getElementById('showVerticalButtons');
   if (vertical) vertical.checked = !!msg.showVerticalButtons;
+  const reveal = document.getElementById('revealEnabled');
+  if (reveal) reveal.checked = !!msg.revealEnabled;
+  const revealAuthoring = document.getElementById('revealAuthoring');
+  if (revealAuthoring) revealAuthoring.hidden = !(msg.isFigJam && msg.revealEnabled);
   document.body.classList.toggle('show-vertical', !!msg.showVerticalButtons);
   if (msg.figjamFrameTypes) {
     figjamTypes.querySelectorAll('input[data-type]').forEach(function(input) {
@@ -499,6 +548,45 @@ function applySettingsState(msg) {
     });
   }
   applyingSettings = false;
+}
+
+function applyRevealSelection(msg) {
+  const authoring = document.getElementById('revealAuthoring');
+  const noSel = document.getElementById('revealNoSelection');
+  const fields = document.getElementById('revealSelectionFields');
+  if (!authoring || !noSel || !fields) return;
+
+  if (!msg.active) {
+    authoring.hidden = true;
+    return;
+  }
+  authoring.hidden = false;
+
+  if (!msg.hasSelection) {
+    noSel.hidden = false;
+    fields.hidden = true;
+    if (msg.unsupported) {
+      noSel.textContent = 'Connectors are revealed automatically when both ends are visible.';
+    } else if (msg.multi) {
+      noSel.textContent = 'Select a single object to set its reveal order.';
+    } else {
+      noSel.textContent = 'Select an object inside a slide to set its reveal order.';
+    }
+    return;
+  }
+
+  applyingReveal = true;
+  noSel.hidden = true;
+  fields.hidden = false;
+  document.getElementById('revealObjectName').textContent = msg.name || 'Object';
+  document.getElementById('revealIncluded').checked = !!msg.included;
+  document.getElementById('revealOrderInput').value = String(msg.order || 1);
+  document.getElementById('revealOrderField').hidden = !msg.included;
+  applyingReveal = false;
+}
+
+function postRevealProps(partial) {
+  parent.postMessage({ pluginMessage: Object.assign({ type: 'setRevealProps' }, partial) }, '*');
 }
 
 function collectFigjamTypes() {
@@ -516,6 +604,11 @@ onmessage = (event) => {
 
   if (msg.type === 'settingsState') {
     applySettingsState(msg);
+    return;
+  }
+
+  if (msg.type === 'revealSelection') {
+    applyRevealSelection(msg);
     return;
   }
 
@@ -655,6 +748,34 @@ document.getElementById('showVerticalButtons').addEventListener('change', functi
   if (applyingSettings) return;
   document.body.classList.toggle('show-vertical', this.checked);
   postSettings({ showVerticalButtons: this.checked });
+});
+
+document.getElementById('revealEnabled').addEventListener('change', function() {
+  if (applyingSettings) return;
+  const authoring = document.getElementById('revealAuthoring');
+  if (authoring) authoring.hidden = !this.checked;
+  postSettings({ revealEnabled: this.checked });
+});
+
+document.getElementById('revealIncluded').addEventListener('change', function() {
+  if (applyingReveal) return;
+  document.getElementById('revealOrderField').hidden = !this.checked;
+  if (this.checked) {
+    const order = Math.max(1, parseInt(document.getElementById('revealOrderInput').value, 10) || 1);
+    document.getElementById('revealOrderInput').value = String(order);
+    postRevealProps({ included: true, order: order });
+  } else {
+    postRevealProps({ included: false });
+  }
+});
+
+document.getElementById('revealOrderInput').addEventListener('change', function() {
+  if (applyingReveal) return;
+  const order = Math.max(1, parseInt(this.value, 10) || 1);
+  this.value = String(order);
+  if (document.getElementById('revealIncluded').checked) {
+    postRevealProps({ included: true, order: order });
+  }
 });
 
 window.onfocus = function() { document.body.classList.remove('unfocused') }
